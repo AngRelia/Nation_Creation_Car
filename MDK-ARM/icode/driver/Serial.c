@@ -20,6 +20,7 @@ extern UART_HandleTypeDef huart2;
 #define TX_DMA_CHUNK_SIZE           256U
 #define RX_DMA_DOUBLE_BUFFER_COUNT  2U
 #define TX_DMA_DOUBLE_BUFFER_COUNT  2U
+#define SERIAL2_TX_MUTEX_TIMEOUT    pdMS_TO_TICKS(1000U)
 
 static uint8_t Serial2_RxBuffer_DMA[RX_DMA_DOUBLE_BUFFER_COUNT][RX_BUFFER_SIZE];
 static uint8_t Serial2_TxBuffer_DMA[TX_DMA_DOUBLE_BUFFER_COUNT][TX_DMA_CHUNK_SIZE];
@@ -51,7 +52,7 @@ static void Serial2_DMATx(uint8_t *buf, uint16_t len)
 
     if ((Serial2_TxMutex != NULL) && (xTaskGetSchedulerState() != taskSCHEDULER_NOT_STARTED))
     {
-        lockTaken = xSemaphoreTake(Serial2_TxMutex, portMAX_DELAY);
+        lockTaken = xSemaphoreTake(Serial2_TxMutex, SERIAL2_TX_MUTEX_TIMEOUT);
         if (lockTaken != pdTRUE)
         {
             return;
@@ -104,6 +105,10 @@ void Serial2_Init(void)
     if (Serial2_TxMutex == NULL)
     {
         Serial2_TxMutex = xSemaphoreCreateMutex();
+        if (Serial2_TxMutex == NULL)
+        {
+            /* 内存不足时退化为原有行为：不加互斥保护。 */
+        }
     }
 
     if ((huart2.hdmarx != NULL) && (huart2.hdmarx->Init.Mode != DMA_NORMAL))
