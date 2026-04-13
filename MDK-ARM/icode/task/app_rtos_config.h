@@ -10,6 +10,7 @@
 #define KEY_TASK_STACK_SIZE      256U
 #define STEPPER_TASK_STACK_SIZE  256U
 #define NRF_TASK_STACK_SIZE      256U
+#define SERIAL_TASK_STACK_SIZE   256U
 
 /* 任务优先级（相对空闲任务 tskIDLE_PRIORITY）。 */
 #define MOTOR_TASK_PRIORITY      (tskIDLE_PRIORITY + 3U)
@@ -17,6 +18,7 @@
 #define KEY_TASK_PRIORITY        (tskIDLE_PRIORITY + 2U)
 #define STEPPER_TASK_PRIORITY    (tskIDLE_PRIORITY + 3U)
 #define NRF_TASK_PRIORITY        (tskIDLE_PRIORITY + 3U)
+#define SERIAL_TASK_PRIORITY     (tskIDLE_PRIORITY + 2U)
 
 /* 事件通道和快照通道的队列长度。 */
 #define KEY_EVENT_QUEUE_LENGTH   8U

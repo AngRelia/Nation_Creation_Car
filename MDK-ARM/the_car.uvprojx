@@ -1916,6 +1916,16 @@
               <FileType>5</FileType>
               <FilePath>.\icode\task\nrf_task.h</FilePath>
             </File>
+            <File>
+              <FileName>serial_task.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>.\icode\task\serial_task.c</FilePath>
+            </File>
+            <File>
+              <FileName>serial_task.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>.\icode\task\serial_task.h</FilePath>
+            </File>
           </Files>
         </Group>
         <Group>

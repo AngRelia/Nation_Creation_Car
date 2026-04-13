@@ -12,9 +12,17 @@ uint8_t Serial2_RxFlag;
 // 外部引用 CubeMX 生成的串口句柄
 extern UART_HandleTypeDef huart2;
 
-// --- DMA 接收专用变量 ---
-#define RX_BUFFER_SIZE 500
-uint8_t RxBuffer[RX_BUFFER_SIZE]; // DMA 自动搬运的目标仓库
+// --- DMA 专用变量 ---
+#define RX_BUFFER_SIZE              500U
+#define TX_DMA_CHUNK_SIZE           256U
+#define RX_DMA_DOUBLE_BUFFER_COUNT  2U
+#define TX_DMA_DOUBLE_BUFFER_COUNT  2U
+
+static uint8_t Serial2_RxBuffer_DMA[RX_DMA_DOUBLE_BUFFER_COUNT][RX_BUFFER_SIZE];
+static uint8_t Serial2_TxBuffer_DMA[TX_DMA_DOUBLE_BUFFER_COUNT][TX_DMA_CHUNK_SIZE];
+static volatile uint8_t Serial2_TxBusy = 0U;
+static volatile uint8_t Serial2_TxActiveIndex = 0U;
+static volatile uint8_t Serial2_RxActiveIndex = 0U;
 
 /*==========================================================
  * 内部辅助函数
@@ -22,13 +30,47 @@ uint8_t RxBuffer[RX_BUFFER_SIZE]; // DMA 自动搬运的目标仓库
 
 static void Serial2_WaitTxFinish(void)
 {
-    while (HAL_UART_GetState(&huart2) == HAL_UART_STATE_BUSY_TX);
+    while (Serial2_TxBusy != 0U)
+    {
+    }
 }
 
-static void Serial2_BlockingTx(uint8_t *buf, uint16_t len)
+static void Serial2_DMATx(uint8_t *buf, uint16_t len)
 {
-    Serial2_WaitTxFinish();
-    HAL_UART_Transmit(&huart2, buf, len, 1000);
+    uint16_t offset = 0U;
+
+    if ((buf == NULL) || (len == 0U))
+    {
+        return;
+    }
+
+    while (offset < len)
+    {
+        uint8_t txIndex;
+        uint16_t chunk = (uint16_t)(len - offset);
+        if (chunk > TX_DMA_CHUNK_SIZE)
+        {
+            chunk = TX_DMA_CHUNK_SIZE;
+        }
+
+        Serial2_WaitTxFinish();
+        txIndex = Serial2_TxActiveIndex;
+        memcpy(Serial2_TxBuffer_DMA[txIndex], &buf[offset], chunk);
+        Serial2_TxBusy = 1U;
+
+        if (HAL_UART_Transmit_DMA(&huart2, Serial2_TxBuffer_DMA[txIndex], chunk) != HAL_OK)
+        {
+            Serial2_TxBusy = 0U;
+            HAL_UART_Transmit(&huart2, Serial2_TxBuffer_DMA[txIndex], chunk, 1000U);
+        }
+        else
+        {
+            Serial2_TxActiveIndex = (uint8_t)((Serial2_TxActiveIndex + 1U) % TX_DMA_DOUBLE_BUFFER_COUNT);
+            Serial2_WaitTxFinish();
+        }
+
+        offset = (uint16_t)(offset + chunk);
+    }
 }
 
 /*==========================================================
@@ -36,9 +78,31 @@ static void Serial2_BlockingTx(uint8_t *buf, uint16_t len)
  *==========================================================*/
 void Serial2_Init(void)
 {
-    // 开启 DMA 接收，并启用空闲中断 (ReceiveToIdle)
-    // 这里的接收是 Circular (循环) 模式
-    HAL_UARTEx_ReceiveToIdle_DMA(&huart2, RxBuffer, RX_BUFFER_SIZE);
+    Serial2_RxFlag = 0U;
+    Serial2_TxBusy = 0U;
+    Serial2_TxActiveIndex = 0U;
+    Serial2_RxActiveIndex = 0U;
+
+    if ((huart2.hdmarx != NULL) && (huart2.hdmarx->Init.Mode != DMA_NORMAL))
+    {
+        huart2.hdmarx->Init.Mode = DMA_NORMAL;
+        (void)HAL_DMA_Init(huart2.hdmarx);
+    }
+
+    if ((huart2.hdmatx != NULL) && (huart2.hdmatx->Init.Mode != DMA_NORMAL))
+    {
+        huart2.hdmatx->Init.Mode = DMA_NORMAL;
+        (void)HAL_DMA_Init(huart2.hdmatx);
+    }
+
+    // 启动接收 DMA 双缓冲（ping-pong）：每次回调切换到另一块缓冲区
+    (void)HAL_UARTEx_ReceiveToIdle_DMA(&huart2,
+                                       Serial2_RxBuffer_DMA[Serial2_RxActiveIndex],
+                                       RX_BUFFER_SIZE);
+    if (huart2.hdmarx != NULL)
+    {
+        __HAL_DMA_DISABLE_IT(huart2.hdmarx, DMA_IT_HT);
+    }
 }
 
 /*==========================================================
@@ -48,17 +112,22 @@ void Serial2_Init(void)
 void Serial2_SendByte(uint8_t byte)
 {
     uint8_t tempByte = byte;
-    Serial2_BlockingTx(&tempByte, 1);
+    Serial2_DMATx(&tempByte, 1U);
 }
 
 void Serial2_SendArray(uint8_t *array, uint16_t length)
 {
-    Serial2_BlockingTx(array, length);
+    Serial2_DMATx(array, length);
 }
 
 void Serial2_SendString(char *str)
 {
-    Serial2_BlockingTx((uint8_t*)str, strlen(str));
+    if (str == NULL)
+    {
+        return;
+    }
+
+    Serial2_DMATx((uint8_t *)str, (uint16_t)strlen(str));
 }
 
 uint32_t Serial_Pow(uint32_t X, uint32_t Y)
@@ -88,7 +157,23 @@ void Serial2_Printf(char *format, ...)
     va_start(args, format);
     vsnprintf(buffer_Serial2, sizeof(buffer_Serial2), format, args);
     va_end(args);
-    Serial2_BlockingTx((uint8_t*)buffer_Serial2, strlen(buffer_Serial2));
+    Serial2_DMATx((uint8_t *)buffer_Serial2, (uint16_t)strlen(buffer_Serial2));
+}
+
+void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart)
+{
+    if (huart->Instance == USART2)
+    {
+        Serial2_TxBusy = 0U;
+    }
+}
+
+void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
+{
+    if (huart->Instance == USART2)
+    {
+        Serial2_TxBusy = 0U;
+    }
 }
 
 /*==========================================================
@@ -102,7 +187,7 @@ void Serial2_Printf(char *format, ...)
 static void Serial2_ProcessByte(uint8_t byte)
 {
     static uint8_t RxState2 = 0;
-    static uint8_t pRxPacket2 = 0;
+    static uint16_t pRxPacket2 = 0U;
 
     if (RxState2 == 0)
     {
@@ -120,7 +205,7 @@ static void Serial2_ProcessByte(uint8_t byte)
         }
         else
         {
-            if(pRxPacket2 < 499) 
+            if (pRxPacket2 < 499U)
             {
                 Serial2_RxPacket[pRxPacket2++] = byte;
             }
@@ -144,35 +229,26 @@ static void Serial2_ProcessByte(uint8_t byte)
  */
 void Serial2_DMA_RxEvent(uint16_t Size)
 {
-    static uint16_t oldPos = 0; // 上一次处理到的位置
+    uint16_t i;
+    uint16_t validSize = Size;
+    uint8_t currRxIndex = Serial2_RxActiveIndex;
 
-    // 计算新接收的数据长度
-    // 情况1: Size > oldPos (正常接收)
-    // 情况2: Size < oldPos (发生了环形回绕)
-    
-    if (Size > oldPos)
+    if (validSize > RX_BUFFER_SIZE)
     {
-        // 处理从 oldPos 到 Size 的数据
-        for (int i = oldPos; i < Size; i++)
-        {
-            Serial2_ProcessByte(RxBuffer[i]);
-        }
+        validSize = RX_BUFFER_SIZE;
     }
-    else
+
+    for (i = 0U; i < validSize; i++)
     {
-        // 发生了回绕 (End of buffer reached)
-        // 1. 先处理 oldPos 到 Buffer 结尾的数据
-        for (int i = oldPos; i < RX_BUFFER_SIZE; i++)
-        {
-            Serial2_ProcessByte(RxBuffer[i]);
-        }
-        // 2. 再处理 0 到 Size 的数据
-        for (int i = 0; i < Size; i++)
-        {
-            Serial2_ProcessByte(RxBuffer[i]);
-        }
+        Serial2_ProcessByte(Serial2_RxBuffer_DMA[currRxIndex][i]);
     }
-	
-    // 更新位置，供下一次中断使用
-    oldPos = Size;
+
+    Serial2_RxActiveIndex = (uint8_t)((currRxIndex + 1U) % RX_DMA_DOUBLE_BUFFER_COUNT);
+    (void)HAL_UARTEx_ReceiveToIdle_DMA(&huart2,
+                                       Serial2_RxBuffer_DMA[Serial2_RxActiveIndex],
+                                       RX_BUFFER_SIZE);
+    if (huart2.hdmarx != NULL)
+    {
+        __HAL_DMA_DISABLE_IT(huart2.hdmarx, DMA_IT_HT);
+    }
 }

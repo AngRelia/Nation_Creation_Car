@@ -9,8 +9,6 @@
 #include "oled_task.h"
 #include "stepper_task.h"
 
-#include "Serial.h"
-
 /*
  * 电机任务模块说明
  * ----------------
@@ -196,14 +194,6 @@ void Motor_Task_Entry(void *argument)
 
             g_all_motor_duty = duty;
             DCMotor_SetDuty(duty, duty);
-
-            Serial2_Printf("%.3f,%.3f,%.3f,%d,%.3f,%.3f\n",
-                           g_dc_target_mps,
-                           meas_mps_filt,
-                           speed_err,
-                           duty,
-                           g_steer_target_deg,
-                           g_steer_current_deg);
 
             stage = 0U;
             stage_ms = 0U;

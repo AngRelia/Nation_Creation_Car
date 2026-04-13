@@ -58,4 +58,5 @@ base_project\freertos.o: ./icode/driver/nrf24l01.h
 base_project\freertos.o: ./icode/task/oled_task.h
 base_project\freertos.o: ../Middlewares/Third_Party/FreeRTOS/Source/include/semphr.h
 base_project\freertos.o: ./icode/driver/step_motor.h
+base_project\freertos.o: ./icode/task/serial_task.h
 base_project\freertos.o: ./icode/task/stepper_task.h

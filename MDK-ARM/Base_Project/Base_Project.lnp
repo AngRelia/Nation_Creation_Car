@@ -46,6 +46,7 @@
 "base_project\key_task.o"
 "base_project\stepper_task.o"
 "base_project\nrf_task.o"
+"base_project\serial_task.o"
 "base_project\dc_motor.o"
 "base_project\key.o"
 "base_project\nrf24l01.o"

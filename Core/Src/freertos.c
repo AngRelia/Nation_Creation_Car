@@ -20,6 +20,7 @@
 #include "motor_task.h"
 #include "nrf_task.h"
 #include "oled_task.h"
+#include "serial_task.h"
 #include "stepper_task.h"
 /* USER CODE END Includes */
 
@@ -98,6 +99,7 @@ void MX_FREERTOS_Init(void) {
   Key_Task_Init();
   Stepper_Task_Init();
   Nrf_Task_Init();
+  Serial_Task_Init();
   /* USER CODE END RTOS_THREADS */
 
   /* USER CODE BEGIN RTOS_EVENTS */
