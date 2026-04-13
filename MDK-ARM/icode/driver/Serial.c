@@ -1,6 +1,9 @@
 #include "Serial.h"
 #include "main.h"
 #include "stm32f4xx_hal.h"
+#include "FreeRTOS.h"
+#include "task.h"
+#include "semphr.h"
 #include <stdio.h>
 #include <stdarg.h>
 #include <string.h>
@@ -23,6 +26,7 @@ static uint8_t Serial2_TxBuffer_DMA[TX_DMA_DOUBLE_BUFFER_COUNT][TX_DMA_CHUNK_SIZ
 static volatile uint8_t Serial2_TxBusy = 0U;
 static volatile uint8_t Serial2_TxActiveIndex = 0U;
 static volatile uint8_t Serial2_RxActiveIndex = 0U;
+static SemaphoreHandle_t Serial2_TxMutex = NULL;
 
 /*==========================================================
  * 内部辅助函数
@@ -38,10 +42,20 @@ static void Serial2_WaitTxFinish(void)
 static void Serial2_DMATx(uint8_t *buf, uint16_t len)
 {
     uint16_t offset = 0U;
+    BaseType_t lockTaken = pdFALSE;
 
     if ((buf == NULL) || (len == 0U))
     {
         return;
+    }
+
+    if ((Serial2_TxMutex != NULL) && (xTaskGetSchedulerState() != taskSCHEDULER_NOT_STARTED))
+    {
+        lockTaken = xSemaphoreTake(Serial2_TxMutex, portMAX_DELAY);
+        if (lockTaken != pdTRUE)
+        {
+            return;
+        }
     }
 
     while (offset < len)
@@ -71,6 +85,11 @@ static void Serial2_DMATx(uint8_t *buf, uint16_t len)
 
         offset = (uint16_t)(offset + chunk);
     }
+
+    if (lockTaken == pdTRUE)
+    {
+        (void)xSemaphoreGive(Serial2_TxMutex);
+    }
 }
 
 /*==========================================================
@@ -82,6 +101,10 @@ void Serial2_Init(void)
     Serial2_TxBusy = 0U;
     Serial2_TxActiveIndex = 0U;
     Serial2_RxActiveIndex = 0U;
+    if (Serial2_TxMutex == NULL)
+    {
+        Serial2_TxMutex = xSemaphoreCreateMutex();
+    }
 
     if ((huart2.hdmarx != NULL) && (huart2.hdmarx->Init.Mode != DMA_NORMAL))
     {

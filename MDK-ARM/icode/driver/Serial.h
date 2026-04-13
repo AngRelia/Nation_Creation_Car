@@ -14,6 +14,7 @@ void Serial2_Init(void); // 新增：初始化接收 DMA
 // 注意：这个 Size 是 HAL 库在中断里算好传给你的
 void Serial2_DMA_RxEvent(uint16_t Size);
 
+/* 多任务可并发调用发送接口，底层会串行化访问 USART2。 */
 void Serial2_SendByte(uint8_t byte);
 void Serial2_SendArray(uint8_t *array, uint16_t length);
 void Serial2_SendString(char *str);
