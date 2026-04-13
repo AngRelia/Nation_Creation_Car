@@ -40,6 +40,28 @@ static void Serial2_WaitTxFinish(void)
     }
 }
 
+static void Serial2_EnsureTxMutex(void)
+{
+    if (Serial2_TxMutex != NULL)
+    {
+        return;
+    }
+
+    if (xTaskGetSchedulerState() == taskSCHEDULER_NOT_STARTED)
+    {
+        Serial2_TxMutex = xSemaphoreCreateMutex();
+    }
+    else
+    {
+        vTaskSuspendAll();
+        if (Serial2_TxMutex == NULL)
+        {
+            Serial2_TxMutex = xSemaphoreCreateMutex();
+        }
+        (void)xTaskResumeAll();
+    }
+}
+
 static void Serial2_DMATx(uint8_t *buf, uint16_t len)
 {
     uint16_t offset = 0U;
@@ -49,6 +71,8 @@ static void Serial2_DMATx(uint8_t *buf, uint16_t len)
     {
         return;
     }
+
+    Serial2_EnsureTxMutex();
 
     if ((Serial2_TxMutex != NULL) && (xTaskGetSchedulerState() != taskSCHEDULER_NOT_STARTED))
     {
@@ -102,14 +126,7 @@ void Serial2_Init(void)
     Serial2_TxBusy = 0U;
     Serial2_TxActiveIndex = 0U;
     Serial2_RxActiveIndex = 0U;
-    if (Serial2_TxMutex == NULL)
-    {
-        Serial2_TxMutex = xSemaphoreCreateMutex();
-        if (Serial2_TxMutex == NULL)
-        {
-            /* 内存不足时退化为原有行为：不加互斥保护。 */
-        }
-    }
+    Serial2_EnsureTxMutex();
 
     if ((huart2.hdmarx != NULL) && (huart2.hdmarx->Init.Mode != DMA_NORMAL))
     {
