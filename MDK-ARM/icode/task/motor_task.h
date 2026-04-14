@@ -15,7 +15,6 @@ extern TaskHandle_t MotorTaskHandle;
 extern volatile DCMotor_Status_t g_MotorStatus;
 extern volatile int16_t g_all_motor_duty;
 extern volatile float g_dc_target_mps;
-extern PID_Controller_t g_dc_pid;
 
 /* 提供给其他任务读取的电机状态快照结构。 */
 typedef struct

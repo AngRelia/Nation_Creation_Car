@@ -7,37 +7,37 @@ extern "C" {
 
 #include <stdint.h>
 
+typedef enum
+{
+    MOTOR_LEFT = 0,
+    MOTOR_RIGHT
+} PID_ITEM;
+
 typedef struct
 {
-    float kp;
-    float ki;
-    float kd;
+    float Kp;
+    float Ki;
+    float Kd;
 
-    float integral;
-    float prev_error;
-    float output;
+    float Error0;
+    float Error1;
+    float ErrorInt;
 
-    float out_min;
-    float out_max;
-    float integral_min;
-    float integral_max;
-} PID_Controller_t;
+    float Output;
+    float OutputMax;
+    float OutputMin;
+    float IntegralMax;
+    float IntegralMin;
+} PID_TypeDef;
 
-void PID_Init(PID_Controller_t *pid,
-              float kp,
-              float ki,
-              float kd,
-              float out_min,
-              float out_max,
-              float integral_min,
-              float integral_max);
+extern PID_TypeDef PID_Left_Speed;
+extern PID_TypeDef PID_Right_Speed;
 
-void PID_Reset(PID_Controller_t *pid);
-
-float PID_Calculate(PID_Controller_t *pid,
-                    float setpoint,
-                    float measurement,
-                    float dt_s);
+void PID_Init(void);
+float PID_Calculate_Step(PID_TypeDef *pid, float target, float actual);
+void PID_SetParameters(PID_ITEM item, float kp, float ki, float kd);
+void PID_Reset(PID_ITEM item);
+float PID_GetOutput(PID_ITEM item);
 
 #ifdef __cplusplus
 }

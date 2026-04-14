@@ -7,7 +7,7 @@
 #include <string.h>
 
 /* --- 配置参数 --- */
-#define MAX_PRINT_LEN     128  // 多串口可能需要更长的缓冲区
+#define MAX_PRINT_LEN     256  // 多串口可能需要更长的缓冲区
 #define PRINT_QUEUE_SIZE  15   // 增大队列深度以缓存多个串口的数据
 
 /**

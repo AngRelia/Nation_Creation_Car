@@ -55,4 +55,5 @@ base_project\motor_task.o: ./icode/driver/nrf24l01.h
 base_project\motor_task.o: icode\task\oled_task.h
 base_project\motor_task.o: ../Middlewares/Third_Party/FreeRTOS/Source/include/semphr.h
 base_project\motor_task.o: ./icode/driver/step_motor.h
+base_project\motor_task.o: icode\task\serial_task.h
 base_project\motor_task.o: icode\task\stepper_task.h

@@ -7,13 +7,14 @@
 #include "app_rtos_config.h"
 #include "nrf_task.h"
 #include "oled_task.h"
+#include "serial_task.h"
 #include "stepper_task.h"
 
 /*
  * 电机任务模块说明
  * ----------------
  * - 负责直流电机测试模式与总控模式下的执行逻辑。
- * - 在总控模式中维护速度闭环 PID 控制。
+ * - 在总控模式中维护左右轮独立速度闭环 PID 控制。
  * - 通过队列发布电机状态快照，供其他任务读取。
  */
 
@@ -22,7 +23,10 @@ static QueueHandle_t xMotorDataQueue = NULL;
 volatile DCMotor_Status_t g_MotorStatus;
 volatile int16_t g_all_motor_duty = 0;
 volatile float g_dc_target_mps = 0.0f;
-PID_Controller_t g_dc_pid;
+
+#define MOTOR_CTRL_PERIOD_MS (20U)      // 控制周期（ms）
+#define MOTOR_CTRL_PERIOD_S  (0.02f)        // 控制周期（s）
+#define MOTOR_PRINT_PERIOD_MS (100U)    // 打印周期（ms）
 
 /* 将最新电机状态发布到单槽队列（覆盖旧值语义）。 */
 static void Motor_PublishData(void)
@@ -74,29 +78,22 @@ bool Motor_GetValue(MotorTaskData_t *out_data, uint32_t timeout_ms)
 
 /*
  * 电机控制主循环：
- * - 以 50ms 固定步长运行，保证控制节拍稳定。
+ * - 以 20ms 固定步长运行，保证控制节拍稳定。
  * - APP_MODE_MOTOR：执行分阶段开环测试。
  * - APP_MODE_ALL_CONTROL：摇杆目标 + PID 闭环速度控制。
  */
 void Motor_Task_Entry(void *argument)
 {
     TickType_t xLastWakeTime = xTaskGetTickCount();
-    const TickType_t xFrequency = pdMS_TO_TICKS(50);
+    const TickType_t xFrequency = pdMS_TO_TICKS(MOTOR_CTRL_PERIOD_MS);
     uint32_t stage = 0U;
     uint32_t stage_ms = 0U;
+    uint32_t print_elapsed_ms = 0U;
 
     (void)argument;
     DCMotor_Init();
     DCMotor_SetDuty(0, 0);
-
-    PID_Init(&g_dc_pid,
-             70.0f,
-             65.0f,
-             0.0f,
-             -100.0f,
-             100.0f,
-             -1.8f,
-             1.8f);
+    PID_Init();
 
     while (1)
     {
@@ -104,7 +101,7 @@ void Motor_Task_Entry(void *argument)
 
         if (APP_MODE_IS(APP_MODE_MOTOR))
         {
-            stage_ms += 50U;
+            stage_ms += MOTOR_CTRL_PERIOD_MS;
             if (stage_ms >= 2000U)
             {
                 stage_ms = 0U;
@@ -124,12 +121,15 @@ void Motor_Task_Entry(void *argument)
             TickType_t now_tick = xTaskGetTickCount();
             int16_t diff;
             float target_mps = 0.0f;
-            static float target_cmd_mps = 0.0f;
-            float meas_mps;
-            static float meas_mps_filt = 0.0f;
-            float duty_f;
-            float speed_err;
-            int16_t duty;
+            static float target_cmd_mps = 0.0f; //
+            float target_left_mps;
+            float target_right_mps;
+            float actual_left_mps;
+            float actual_right_mps;
+            float duty_left_f;
+            float duty_right_f;
+            int16_t duty_left;
+            int16_t duty_right;
 
             if ((now_tick - g_nrf_last_ok_tick) > pdMS_TO_TICKS(NRF_LOST_TIMEOUT_MS))
             {
@@ -167,33 +167,58 @@ void Motor_Task_Entry(void *argument)
             }
 
             g_dc_target_mps = target_cmd_mps;
-            meas_mps = (g_MotorStatus.left_speed_mps + g_MotorStatus.right_speed_mps) * 0.5f;
-            meas_mps_filt = meas_mps_filt * 0.7f + meas_mps * 0.3f;
-            speed_err = g_dc_target_mps - meas_mps_filt;
+            target_left_mps = g_dc_target_mps;
+            target_right_mps = g_dc_target_mps;
+            actual_left_mps = g_MotorStatus.left_speed_mps;
+            actual_right_mps = g_MotorStatus.right_speed_mps;
 
             if (fabsf(g_dc_target_mps) < 0.03f)
             {
-                PID_Reset(&g_dc_pid);
-                duty = 0;
+                PID_Reset(MOTOR_LEFT);
+                PID_Reset(MOTOR_RIGHT);
+                duty_left = 0;
+                duty_right = 0;
             }
             else
             {
-                duty_f = PID_Calculate(&g_dc_pid, g_dc_target_mps, meas_mps_filt, 0.05f);
-                duty = (int16_t)duty_f;
+                duty_left_f = PID_Calculate_Step(&PID_Left_Speed, target_left_mps, actual_left_mps);
+                duty_right_f = PID_Calculate_Step(&PID_Right_Speed, target_right_mps, actual_right_mps);
+                duty_left = (int16_t)duty_left_f;
+                duty_right = (int16_t)duty_right_f;
+            }
+
+            print_elapsed_ms += MOTOR_CTRL_PERIOD_MS;
+            if (print_elapsed_ms >= MOTOR_PRINT_PERIOD_MS)
+            {
+                print_elapsed_ms = 0U;
+                AppSerial_Printf(PORT_UART2,
+                                 "%.3f,%.3f,%.3f,%.3f\n",
+                                 target_left_mps,
+                                 actual_left_mps,
+                                 target_right_mps,
+                                 actual_right_mps);
             }
 
             /* 将 PWM 占空比限制在有效范围内。 */
-            if (duty > 100)
+            if (duty_left > 100)
             {
-                duty = 100;
+                duty_left = 100;
             }
-            if (duty < -100)
+            if (duty_left < -100)
             {
-                duty = -100;
+                duty_left = -100;
+            }
+            if (duty_right > 100)
+            {
+                duty_right = 100;
+            }
+            if (duty_right < -100)
+            {
+                duty_right = -100;
             }
 
-            g_all_motor_duty = duty;
-            DCMotor_SetDuty(duty, duty);
+            g_all_motor_duty = (int16_t)((duty_left + duty_right) / 2);
+            DCMotor_SetDuty(duty_left, duty_right);
 
             stage = 0U;
             stage_ms = 0U;
@@ -203,13 +228,15 @@ void Motor_Task_Entry(void *argument)
             DCMotor_SetDuty(0, 0);
             g_all_motor_duty = 0;
             g_dc_target_mps = 0.0f;
-            PID_Reset(&g_dc_pid);
+            PID_Reset(MOTOR_LEFT);
+            PID_Reset(MOTOR_RIGHT);
             stage = 0U;
             stage_ms = 0U;
+            print_elapsed_ms = 0U;
         }
 
         /* 刷新电机测量值，并向外发布最新快照。 */
-        DCMotor_UpdateSpeed(0.05f);
+        DCMotor_UpdateSpeed(MOTOR_CTRL_PERIOD_S);
         DCMotor_GetStatus((DCMotor_Status_t *)&g_MotorStatus);
         Motor_PublishData();
         OLED_PublishDisplayData();

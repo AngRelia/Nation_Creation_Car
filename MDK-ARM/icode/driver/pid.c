@@ -1,73 +1,135 @@
 #include "pid.h"
 
-static float PID_Clamp(float x, float min_v, float max_v)
+PID_TypeDef PID_Left_Speed;
+PID_TypeDef PID_Right_Speed;
+
+float PID_Calculate_Step(PID_TypeDef *pid, float target, float actual)
 {
-    if (x < min_v) return min_v;
-    if (x > max_v) return max_v;
-    return x;
+    if (pid == 0)
+    {
+        return 0.0f;
+    }
+
+    pid->Error1 = pid->Error0;
+    pid->Error0 = target - actual;
+
+    if (pid->Ki != 0.0f)
+    {
+        pid->ErrorInt += pid->Error0;
+        if (pid->ErrorInt > pid->IntegralMax) pid->ErrorInt = pid->IntegralMax;
+        if (pid->ErrorInt < pid->IntegralMin) pid->ErrorInt = pid->IntegralMin;
+    }
+
+    pid->Output = pid->Kp * pid->Error0 +
+                  pid->Ki * pid->ErrorInt +
+                  pid->Kd * (pid->Error0 - pid->Error1);
+
+    if (pid->Output > pid->OutputMax) pid->Output = pid->OutputMax;
+    if (pid->Output < pid->OutputMin) pid->Output = pid->OutputMin;
+
+    return pid->Output;
 }
 
-void PID_Init(PID_Controller_t *pid,
-              float kp,
-              float ki,
-              float kd,
-              float out_min,
-              float out_max,
-              float integral_min,
-              float integral_max)
+void PID_Init(void)
 {
-    if (pid == 0) return;
+    PID_Left_Speed.Kp = 70.0f;
+    PID_Left_Speed.Ki = 1.3f;
+    PID_Left_Speed.Kd = 0.0f;
 
-    pid->kp = kp;
-    pid->ki = ki;
-    pid->kd = kd;
+    PID_Left_Speed.OutputMax = 100.0f;
+    PID_Left_Speed.OutputMin = -100.0f;
+    PID_Left_Speed.IntegralMax = 90.0f;
+    PID_Left_Speed.IntegralMin = -90.0f;
 
-    pid->integral = 0.0f;
-    pid->prev_error = 0.0f;
-    pid->output = 0.0f;
+    PID_Left_Speed.Error0 = 0.0f;
+    PID_Left_Speed.Error1 = 0.0f;
+    PID_Left_Speed.ErrorInt = 0.0f;
+    PID_Left_Speed.Output = 0.0f;
 
-    pid->out_min = out_min;
-    pid->out_max = out_max;
-    pid->integral_min = integral_min;
-    pid->integral_max = integral_max;
+    PID_Right_Speed.Kp = 70.0f;
+    PID_Right_Speed.Ki = 1.3f;
+    PID_Right_Speed.Kd = 0.0f;
+
+    PID_Right_Speed.OutputMax = 100.0f;
+    PID_Right_Speed.OutputMin = -100.0f;
+    PID_Right_Speed.IntegralMax = 90.0f;
+    PID_Right_Speed.IntegralMin = -90.0f;
+
+    PID_Right_Speed.Error0 = 0.0f;
+    PID_Right_Speed.Error1 = 0.0f;
+    PID_Right_Speed.ErrorInt = 0.0f;
+    PID_Right_Speed.Output = 0.0f;
 }
 
-void PID_Reset(PID_Controller_t *pid)
+void PID_SetParameters(PID_ITEM item, float kp, float ki, float kd)
 {
-    if (pid == 0) return;
-    pid->integral = 0.0f;
-    pid->prev_error = 0.0f;
-    pid->output = 0.0f;
+    PID_TypeDef *pid = 0;
+    switch (item)
+    {
+        case MOTOR_LEFT:
+            pid = &PID_Left_Speed;
+            break;
+        case MOTOR_RIGHT:
+            pid = &PID_Right_Speed;
+            break;
+        default:
+            return;
+    }
+
+    if (pid == 0)
+    {
+        return;
+    }
+
+    pid->Kp = kp;
+    pid->Ki = ki;
+    pid->Kd = kd;
 }
 
-float PID_Calculate(PID_Controller_t *pid,
-                    float setpoint,
-                    float measurement,
-                    float dt_s)
+void PID_Reset(PID_ITEM item)
 {
-    float error;
-    float p;
-    float i;
-    float d;
-    float derivative;
+    PID_TypeDef *pid = 0;
+    switch (item)
+    {
+        case MOTOR_LEFT:
+            pid = &PID_Left_Speed;
+            break;
+        case MOTOR_RIGHT:
+            pid = &PID_Right_Speed;
+            break;
+        default:
+            return;
+    }
 
-    if (pid == 0) return 0.0f;
-    if (dt_s <= 0.0f) return pid->output;
+    if (pid == 0)
+    {
+        return;
+    }
 
-    error = setpoint - measurement;
+    pid->Error0 = 0.0f;
+    pid->Error1 = 0.0f;
+    pid->ErrorInt = 0.0f;
+    pid->Output = 0.0f;
+}
 
-    p = pid->kp * error;
+float PID_GetOutput(PID_ITEM item)
+{
+    PID_TypeDef *pid = 0;
+    switch (item)
+    {
+        case MOTOR_LEFT:
+            pid = &PID_Left_Speed;
+            break;
+        case MOTOR_RIGHT:
+            pid = &PID_Right_Speed;
+            break;
+        default:
+            return 0.0f;
+    }
 
-    pid->integral += error * dt_s;
-    pid->integral = PID_Clamp(pid->integral, pid->integral_min, pid->integral_max);
-    i = pid->ki * pid->integral;
-
-    derivative = (error - pid->prev_error) / dt_s;
-    d = pid->kd * derivative;
-
-    pid->output = p + i + d;
-    pid->output = PID_Clamp(pid->output, pid->out_min, pid->out_max);
-
-    pid->prev_error = error;
-    return pid->output;
+    if (pid == 0)
+    {
+        return 0.0f;
+    }
+    return pid->Output;
 }
