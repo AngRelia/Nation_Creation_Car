@@ -27,19 +27,29 @@ Project File Date:  04/14/2026
 <h2>Output:</h2>
 *** Using Compiler 'V5.06 update 7 (build 960)', folder: 'E:\Keil5\ARM\ARMCC\Bin'
 Build target 'the_car'
-compiling key_task.c...
+compiling Serial.c...
+compiling oled_task.c...
 compiling serial_task.c...
+icode\task\serial_task.h(27): warning:  #1-D: last line of file ends without a newline
+  #endif
+icode\task\serial_task.c(96): warning:  #1-D: last line of file ends without a newline
+  }
+icode\task\serial_task.c: 2 warnings, 0 errors
+compiling key_task.c...
+compiling stepper_task.c...
 compiling nrf_task.c...
 compiling motor_task.c...
-icode\task\motor_task.c(133): warning:  #550-D: variable "speed_err"  was set but never used
+icode\task\motor_task.c(131): warning:  #550-D: variable "speed_err"  was set but never used
               float speed_err;
 icode\task\motor_task.c: 1 warning, 0 errors
-compiling oled_task.c...
-compiling stepper_task.c...
+compiling freertos.c...
+./icode/task/serial_task.h(27): warning:  #1-D: last line of file ends without a newline
+  #endif
+../Core/Src/freertos.c: 1 warning, 0 errors
 linking...
-Program Size: Code=38200 RO-data=2888 RW-data=292 ZI-data=23564  
+Program Size: Code=38448 RO-data=2888 RW-data=300 ZI-data=24324  
 FromELF: creating hex file...
-"Base_Project\Base_Project.axf" - 0 Error(s), 1 Warning(s).
+"Base_Project\Base_Project.axf" - 0 Error(s), 4 Warning(s).
 
 <h2>Software Packages used:</h2>
 
@@ -62,7 +72,7 @@ Package Vendor: Keil
 <h2>Collection of Component Files used:</h2>
 
    * Component: ARM::CMSIS:CORE@6.1.0
-Build Time Elapsed:  00:00:03
+Build Time Elapsed:  00:00:07
 </pre>
 </body>
 </html>
