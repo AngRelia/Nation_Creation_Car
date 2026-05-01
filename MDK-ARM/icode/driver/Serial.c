@@ -1,6 +1,9 @@
 #include "Serial.h"
 #include "main.h"
 #include "stm32f4xx_hal.h"
+#include "FreeRTOS.h"
+#include "task.h"
+#include "semphr.h"
 #include <stdio.h>
 #include <stdarg.h>
 #include <string.h>
@@ -17,12 +20,14 @@ extern UART_HandleTypeDef huart2;
 #define TX_DMA_CHUNK_SIZE           256U
 #define RX_DMA_DOUBLE_BUFFER_COUNT  2U
 #define TX_DMA_DOUBLE_BUFFER_COUNT  2U
+#define SERIAL2_TX_MUTEX_TIMEOUT    pdMS_TO_TICKS(1000U)
 
 static uint8_t Serial2_RxBuffer_DMA[RX_DMA_DOUBLE_BUFFER_COUNT][RX_BUFFER_SIZE];
 static uint8_t Serial2_TxBuffer_DMA[TX_DMA_DOUBLE_BUFFER_COUNT][TX_DMA_CHUNK_SIZE];
 static volatile uint8_t Serial2_TxBusy = 0U;
 static volatile uint8_t Serial2_TxActiveIndex = 0U;
 static volatile uint8_t Serial2_RxActiveIndex = 0U;
+static SemaphoreHandle_t Serial2_TxMutex = NULL;
 
 /*==========================================================
  * 内部辅助函数
@@ -35,13 +40,47 @@ static void Serial2_WaitTxFinish(void)
     }
 }
 
+static void Serial2_EnsureTxMutex(void)
+{
+    if (Serial2_TxMutex != NULL)
+    {
+        return;
+    }
+
+    if (xTaskGetSchedulerState() == taskSCHEDULER_NOT_STARTED)
+    {
+        Serial2_TxMutex = xSemaphoreCreateMutex();
+    }
+    else
+    {
+        vTaskSuspendAll();
+        if (Serial2_TxMutex == NULL)
+        {
+            Serial2_TxMutex = xSemaphoreCreateMutex();
+        }
+        (void)xTaskResumeAll();
+    }
+}
+
 static void Serial2_DMATx(uint8_t *buf, uint16_t len)
 {
     uint16_t offset = 0U;
+    BaseType_t lockTaken = pdFALSE;
 
     if ((buf == NULL) || (len == 0U))
     {
         return;
+    }
+
+    Serial2_EnsureTxMutex();
+
+    if ((Serial2_TxMutex != NULL) && (xTaskGetSchedulerState() != taskSCHEDULER_NOT_STARTED))
+    {
+        lockTaken = xSemaphoreTake(Serial2_TxMutex, SERIAL2_TX_MUTEX_TIMEOUT);
+        if (lockTaken != pdTRUE)
+        {
+            return;
+        }
     }
 
     while (offset < len)
@@ -71,6 +110,11 @@ static void Serial2_DMATx(uint8_t *buf, uint16_t len)
 
         offset = (uint16_t)(offset + chunk);
     }
+
+    if (lockTaken == pdTRUE)
+    {
+        (void)xSemaphoreGive(Serial2_TxMutex);
+    }
 }
 
 /*==========================================================
@@ -82,6 +126,7 @@ void Serial2_Init(void)
     Serial2_TxBusy = 0U;
     Serial2_TxActiveIndex = 0U;
     Serial2_RxActiveIndex = 0U;
+    Serial2_EnsureTxMutex();
 
     if ((huart2.hdmarx != NULL) && (huart2.hdmarx->Init.Mode != DMA_NORMAL))
     {
